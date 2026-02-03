@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { SalesRecord } from '../utils/excelParser';
+import { parseExcel } from '../utils/excelParser';
 import { DB } from '../utils/db';
 
 const STORAGE_KEY = 'coupang_sales_records';
@@ -17,6 +18,35 @@ export function useSalesData() {
                 if (isMounted && stored) {
                     setRecords(stored);
                     console.log(`[DB] Loaded ${stored.length} records.`);
+                } else {
+                    // Try to load default CSV from public folder when DB is empty
+                    try {
+                        const publicPaths = [
+                            '/basic_operation_rocket_2026010120260131.csv',
+                            '/sales.csv',
+                            '/data.csv'
+                        ];
+                        for (const p of publicPaths) {
+                            try {
+                                const res = await fetch(p);
+                                if (!res.ok) continue;
+                                const buf = await res.arrayBuffer();
+                                const file = new File([buf], p.split('/').pop() || 'data.csv', { type: 'text/csv' });
+                                const result = await parseExcel(file);
+                                if (result.records && result.records.length > 0) {
+                                    setRecords(result.records);
+                                    await DB.set(STORAGE_KEY, result.records);
+                                    console.log(`[Public] Loaded ${result.records.length} records from ${p}`);
+                                    break;
+                                }
+                            } catch (e) {
+                                // ignore and try next
+                                console.warn('Failed to fetch/parse public file', p, e);
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('No public fallback data found', e);
+                    }
                 }
             } catch (e) {
                 console.error("Failed to load initial data from DB", e);
